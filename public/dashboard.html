@@ -1,0 +1,30 @@
+
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard — Memberstack + Entra</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; }
+      .card { max-width: 720px; border: 1px solid #e5e7eb; border-radius: 12px; padding: 2rem; }
+      code { background: #f3f4f6; padding: 2px 6px; border-radius: 6px; }
+      pre { background: #0b1220; color: #e2e8f0; padding: 1rem; border-radius: 10px; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>You're in 🎉</h1>
+      <p>This is a placeholder dashboard. Fetch your profile from <code>/api/me</code>:</p>
+      <pre id="out">Loading...</pre>
+      <p><a href="/logout">Log out</a></p>
+    </div>
+    <script>
+      fetch('/api/me').then(r => r.json()).then(d => {
+        document.getElementById('out').textContent = JSON.stringify(d, null, 2);
+      }).catch(e => {
+        document.getElementById('out').textContent = String(e);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,25 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login — Memberstack + Microsoft Entra</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; }
+      .card { max-width: 520px; border: 1px solid #e5e7eb; border-radius: 12px; padding: 2rem; }
+      button { padding: 0.75rem 1rem; border: 0; border-radius: 10px; cursor: pointer; }
+      .ms { background: black; color: white; }
+      a { color: #2563eb; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Sign in with Microsoft</h1>
+      <p>Personal (Outlook/Hotmail) and work/school accounts are supported.</p>
+      <p><a href="/auth/login"><button class="ms">Continue with Microsoft</button></a></p>
+      <p style="margin-top:1rem; font-size: 0.9rem; color:#6b7280;">
+        Hosted on <strong>Render</strong>. Update your Entra Redirect URI to <code>/auth/callback</code> after deploy.
+      </p>
+    </div>
+  </body>
+</html>
