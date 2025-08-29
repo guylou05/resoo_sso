@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: memberstack-entra-only-sso
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: IDP_DISCOVERY_URL
+        value: https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration
+      - key: IDP_CLIENT_ID
+        sync: false
+      - key: IDP_CLIENT_SECRET
+        sync: false
+      - key: IDP_REDIRECT_URI
+        sync: false
+      - key: IDP_SCOPE
+        value: openid profile email
+      - key: APP_BASE_URL
+        sync: false
+      - key: SESSION_COOKIE_NAME
+        value: app_session
+      - key: COOKIE_SECRET
+        sync: false
+      - key: MEMBERSTACK_SECRET_KEY
+        sync: false
+      - key: MEMBERSTACK_API_BASE
+        value: https://admin.memberstack.com
+      - key: MEMBERSTACK_DEFAULT_FREE_PLAN
+        value: ""

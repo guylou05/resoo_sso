@@ -1,0 +1,22 @@
+{
+  "name": "memberstack-entra-only-sso",
+  "version": "1.0.1",
+  "description": "Microsoft Entra (Azure AD) OIDC + Memberstack Admin API upsert, with Express. Render-ready.",
+  "type": "module",
+  "scripts": {
+    "build": "echo 'no build step'",
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "axios": "^1.6.7",
+    "cookie-parser": "^1.4.6",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jose": "^5.9.3",
+    "node-fetch": "^3.3.2"
+  }
+}
