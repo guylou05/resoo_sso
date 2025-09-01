@@ -88,7 +88,6 @@ app.get("/auth/login", async (req, res) => {
   }
 });
 
-console.log("Callback query:", req.query);
 app.get("/auth/callback", async (req, res) => {
   try {
     const { code, state } = req.query;
