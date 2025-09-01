@@ -88,6 +88,7 @@ app.get("/auth/login", async (req, res) => {
   }
 });
 
+console.log("Callback query:", req.query);
 app.get("/auth/callback", async (req, res) => {
   try {
     const { code, state } = req.query;
@@ -159,8 +160,14 @@ app.get("/auth/callback", async (req, res) => {
 
     return res.redirect(`${process.env.APP_BASE_URL || ""}/dashboard`);
   } catch (e) {
-    console.error(e);
-    return res.status(500).send("Callback failed");
+    console.error("Callback error:", e);
+    const msg = e?.message || String(e);
+    return res
+      .status(500)
+      .send(`<pre style="white-space:pre-wrap;font-family:system-ui">
+  Callback failed:
+  ${msg}
+  </pre>`);
   }
 });
 
