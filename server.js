@@ -61,9 +61,14 @@ app.get("/auth/callback", async (req,res)=>{
       const plan=process.env.MEMBERSTACK_DEFAULT_FREE_PLAN||"";
       member=await createMember({ email: profile.email, firstName: profile.given_name||"", lastName: profile.family_name||"", planId: plan||undefined, json:{idp_sub: profile.sub, name: profile.name}, customFields:{} });
     }else{
-      const updates={}; if(profile.given_name||profile.family_name){ updates.customFields={...(member.customFields||{})}; }
-      if(Object.keys(updates).length>0){ try{ await updateMember(member.id, updates); }catch{} }
-    }
+      const updates={}; 
+        if (!member.firstName && profile.given_name) updates.firstName = profile.given_name;
+        if (!member.lastName  && profile.family_name) updates.lastName  = profile.family_name;
+
+        if (Object.keys(updates).length > 0) {
+    try { await updateMember(member.id, updates); } catch (_) {}
+  }
+}
 
     const session={ email: profile.email, sub: profile.sub, memberId: member?.id||null, ts: Date.now() };
     res.cookie(process.env.SESSION_COOKIE_NAME||"app_session", JSON.stringify(session), {...COOKIE_FLAGS, maxAge: 7*24*60*60*1000});
