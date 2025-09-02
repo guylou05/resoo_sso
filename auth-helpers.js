@@ -98,7 +98,8 @@ export async function verifyIdToken({
   // Do NOT pin issuer here because /common returns tenant-specific issuers.
   const { payload } = await jwtVerify(id_token, JWKS, {
     audience,
-    maxTokenAge: "5m",
+    maxTokenAge: "10m",
+    clockTolerance: 300,
   });
 
   // Enforce Microsoft issuer pattern manually for safety:
