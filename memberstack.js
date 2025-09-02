@@ -1,4 +1,3 @@
-// memberstack.js
 import axios from "axios";
 
 const BASE = process.env.MEMBERSTACK_API_BASE || "https://admin.memberstack.com";
@@ -7,11 +6,9 @@ if (!SECRET) console.warn("[memberstack] MEMBERSTACK_SECRET_KEY is not set.");
 
 const headers = { "X-API-KEY": SECRET || "", "Content-Type": "application/json" };
 
-/** Try multiple Admin API token endpoints. Return { token } or null. */
+/** Use collection endpoints only. Return { token } or null. */
 export async function createSessionToken(memberId) {
   const attempts = [
-    { method: "post", url: `${BASE}/members/${memberId}/token`, body: {} },
-    { method: "post", url: `${BASE}/members/${memberId}/create-session`, body: {} },
     { method: "post", url: `${BASE}/members/session`, body: { memberId } },
     { method: "post", url: `${BASE}/sessions`, body: { memberId } },
     { method: "post", url: `${BASE}/auth/token`, body: { memberId } },
@@ -33,26 +30,19 @@ export async function createSessionToken(memberId) {
   return null;
 }
 
-/** Fallback: create a one-time login link for the member. Return { url } or null. */
+/** Magic link via collection endpoint. Return { url } or null. */
 export async function createMagicLink(memberId, redirectTo) {
-  const attempts = [
-    { method: "post", url: `${BASE}/members/${memberId}/magic-link`, body: { redirectTo } },
-    { method: "post", url: `${BASE}/members/magic-link`, body: { memberId, redirectTo } },
-    { method: "post", url: `${BASE}/members/${memberId}/login-link`, body: { redirectTo } },
-  ];
-
-  for (const a of attempts) {
-    try {
-      const res = await axios({ method: a.method, url: a.url, data: a.body, headers });
-      console.log("[MS] magic-link attempt OK:", a.url, "status:", res.status, "keys:", Object.keys(res.data || {}));
-      const url = res?.data?.data?.url || res?.data?.url || res?.data?.link;
-      if (url) return { url };
-      console.warn("[MS] magic-link attempt had no url field:", a.url, res.data);
-    } catch (e) {
-      const status = e?.response?.status;
-      const body = e?.response?.data || e?.message;
-      console.warn("[MS] magic-link attempt failed:", a.url, status, body);
-    }
+  const a = { method: "post", url: `${BASE}/members/magic-link`, body: { memberId, redirectTo } };
+  try {
+    const res = await axios({ method: a.method, url: a.url, data: a.body, headers });
+    console.log("[MS] magic-link OK:", a.url, "status:", res.status, "keys:", Object.keys(res.data || {}));
+    const url = res?.data?.data?.url || res?.data?.url || res?.data?.link;
+    if (url) return { url };
+    console.warn("[MS] magic-link had no url field:", a.url, res.data);
+  } catch (e) {
+    const status = e?.response?.status;
+    const body = e?.response?.data || e?.message;
+    console.warn("[MS] magic-link failed:", a.url, status, body);
   }
   return null;
 }
