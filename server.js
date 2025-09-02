@@ -76,9 +76,9 @@ if (tokenRes?.token) {
   const escapedToken = JSON.stringify(tokenRes.token).replace(/</g, "\u003c");
   const escapedDest  = JSON.stringify(finalDest).replace(/</g, "\u003c");
   return res.status(200).send(`<!doctype html>
-<meta charset="utf-8"><title>Signing you in…</title>
-<script data-memberstack-app="YOUR_PUBLIC_KEY_HERE" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
-<p style="font-family:system-ui,Segoe UI,Arial;margin:2rem;">Signing you in…</p>
+<meta charset=\"utf-8\"><title>Signing you in…</title>
+<script data-memberstack-app=\"YOUR_PUBLIC_KEY_HERE\" src=\"https://static.memberstack.com/scripts/v1/memberstack.js\" async></script>
+<p style=\"font-family:system-ui,Segoe UI,Arial;margin:2rem;\">Signing you in…</p>
 <script>
   (function(){
     function go(){ window.location.replace(${escapedDest}); }
@@ -109,6 +109,7 @@ if (magic?.url) {
 // Fallback: just go to the final page (may be gated if no session)
 console.warn("[MS] no token or magic link; redirecting without session");
 return res.redirect(finalDest);
+
 return res.status(200).send(`<!doctype html>
 <meta charset="utf-8"><title>Signing you in…</title>
 <script data-memberstack-app="YOUR_PUBLIC_KEY_HERE" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
