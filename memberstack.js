@@ -36,10 +36,21 @@ export async function updateMember(memberId, updates) {
 /** Create a short-lived login/session token for a member (Admin API). */
 export async function createSessionToken(memberId) {
   const url = `${BASE}/members/${memberId}/token`;
-  const res = await axios.post(url, {}, { headers });
-  return res.data?.data?.token || res.data?.token;
+  try {
+    const res = await axios.post(url, {}, { headers });
+    console.log("[MS] token response keys:", Object.keys(res.data || {}), "status:", res.status);
+    // Try common shapes:
+    const token = res?.data?.data?.token || res?.data?.token || res?.data?.sessionToken;
+    if (!token) {
+      console.error("[MS] token missing in response:", res.data);
+      return null;
+    }
+    return token;
+  } catch (e) {
+    console.error("[MS] createSessionToken error:", e?.response?.status, e?.response?.data || e?.message);
+    return null;
+  }
 }
-
 function cryptoRandom(len = 24) {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   let s = "";
