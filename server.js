@@ -5,177 +5,82 @@ import cookieParser from "cookie-parser";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import {
-  generateCodeVerifier,
-  generateCodeChallenge,
-  randomString,
-  getDiscovery,
-  buildAuthorizeUrl,
-  exchangeCodeForTokens,
-  verifyIdToken,
-  toNormalizedProfile,
-} from "./auth-helpers.js";
+import { generateCodeVerifier, generateCodeChallenge, randomString, getDiscovery, buildAuthorizeUrl, exchangeCodeForTokens, verifyIdToken, toNormalizedProfile } from "./auth-helpers.js";
+import { getMemberByEmail, createMember, updateMember } from "./memberstack.js";
 
-import {
-  getMemberByEmail,
-  createMember,
-  updateMember,
-} from "./memberstack.js";
+const __filename=fileURLToPath(import.meta.url); const __dirname=path.dirname(__filename);
+const app=express();
+app.use(cookieParser(process.env.COOKIE_SECRET||"dev_secret"));
+app.use(express.json()); app.use(express.urlencoded({extended:true})); app.use(express.static(path.join(__dirname,"public")));
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const COOKIE_FLAGS={ httpOnly:true, secure:process.env.NODE_ENV==="production", sameSite:"lax", signed:true };
+const OIDC_TEMP_COOKIE="oidc_tmp";
 
-const app = express();
-app.use(cookieParser(process.env.COOKIE_SECRET || "dev_secret"));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, "public")));
+app.get("/",(req,res)=>res.sendFile(path.join(__dirname,"public/index.html")));
+app.get("/dashboard",(req,res)=>res.sendFile(path.join(__dirname,"public/dashboard.html")));
+app.get("/api/me",(req,res)=>{ const raw=req.signedCookies[process.env.SESSION_COOKIE_NAME||"app_session"]; if(!raw) return res.status(401).json({error:"not_authenticated"}); try{ return res.json({user:JSON.parse(raw)});}catch{ return res.status(401).json({error:"invalid_session"});} });
 
-const COOKIE_FLAGS = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax",
-  signed: true,
-};
-
-const OIDC_TEMP_COOKIE = "oidc_tmp";
-
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "public/index.html"));
-});
-
-app.get("/dashboard", (req, res) => {
-  res.sendFile(path.join(__dirname, "public/dashboard.html"));
-});
-
-app.get("/api/me", (req, res) => {
-  const sessRaw = req.signedCookies[process.env.SESSION_COOKIE_NAME || "app_session"];
-  if (!sessRaw) return res.status(401).json({ error: "not_authenticated" });
-  try {
-    const sess = JSON.parse(sessRaw);
-    return res.json({ user: sess });
-  } catch {
-    return res.status(401).json({ error: "invalid_session" });
-  }
-});
-
-app.get("/auth/login", async (req, res) => {
-  try {
-    const discovery = await getDiscovery(process.env.IDP_DISCOVERY_URL);
-
-    const state = randomString(24);
-    const nonce = randomString(24);
-    const code_verifier = generateCodeVerifier();
-    const code_challenge = await generateCodeChallenge(code_verifier);
-
-    const tmp = { state, nonce, code_verifier, createdAt: Date.now() };
-    res.cookie(OIDC_TEMP_COOKIE, JSON.stringify(tmp), { ...COOKIE_FLAGS, maxAge: 5 * 60 * 1000 });
-
-    const authorizeUrl = buildAuthorizeUrl({
+app.get("/auth/login", async (req,res)=>{
+  try{
+    const discovery=await getDiscovery(process.env.IDP_DISCOVERY_URL);
+    const state=randomString(24), nonce=randomString(24), code_verifier=generateCodeVerifier(), code_challenge=await generateCodeChallenge(code_verifier);
+    res.cookie(OIDC_TEMP_COOKIE, JSON.stringify({state,nonce,code_verifier,createdAt:Date.now()}), {...COOKIE_FLAGS, maxAge:5*60*1000});
+    const authorizeUrl=buildAuthorizeUrl({
       authorization_endpoint: discovery.authorization_endpoint,
       client_id: process.env.IDP_CLIENT_ID,
       redirect_uri: process.env.IDP_REDIRECT_URI,
       scope: process.env.IDP_SCOPE || "openid profile email",
-      state,
-      nonce,
-      code_challenge,
+      state, nonce, code_challenge
     });
-
+    console.log("Authorize URL:", authorizeUrl);
     return res.redirect(authorizeUrl);
-  } catch (e) {
-    console.error(e);
-    return res.status(500).send("Login init failed");
-  }
+  }catch(e){ console.error("Login init error:", e); return res.status(500).send(`<pre>Login init failed:\n${e?.message||e}</pre>`); }
 });
 
-app.get("/auth/callback", async (req, res) => {
-  try {
-    const { code, state } = req.query;
-    if (!code || !state) return res.status(400).send("Missing code/state");
+app.get("/auth/callback", async (req,res)=>{
+  try{
+    console.log("Callback query:", req.query);
+    const {code,state}=req.query; if(!code||!state) return res.status(400).send("Missing code/state");
+    const tmpRaw=req.signedCookies[OIDC_TEMP_COOKIE]; if(!tmpRaw) return res.status(400).send("Auth flow expired");
+    const tmp=JSON.parse(tmpRaw); res.clearCookie(OIDC_TEMP_COOKIE, COOKIE_FLAGS); if(state!==tmp.state) return res.status(400).send("State mismatch");
 
-    const tmpRaw = req.signedCookies[OIDC_TEMP_COOKIE];
-    if (!tmpRaw) return res.status(400).send("Auth flow expired");
-    const tmp = JSON.parse(tmpRaw);
-    res.clearCookie(OIDC_TEMP_COOKIE, COOKIE_FLAGS);
-    if (state !== tmp.state) return res.status(400).send("State mismatch");
-
-    const discovery = await getDiscovery(process.env.IDP_DISCOVERY_URL);
-
-    const tokens = await exchangeCodeForTokens({
+    const discovery=await getDiscovery(process.env.IDP_DISCOVERY_URL);
+    const tokens=await exchangeCodeForTokens({
       token_endpoint: discovery.token_endpoint,
       client_id: process.env.IDP_CLIENT_ID,
       client_secret: process.env.IDP_CLIENT_SECRET,
-      code,
-      redirect_uri: process.env.IDP_REDIRECT_URI,
-      code_verifier: tmp.code_verifier,
+      code, redirect_uri: process.env.IDP_REDIRECT_URI, code_verifier: tmp.code_verifier
     });
+    console.log("Tokens received keys:", Object.keys(tokens));
 
-    const idPayload = await verifyIdToken({
-      id_token: tokens.id_token,
-      issuer: discovery.issuer,
-      audience: process.env.IDP_CLIENT_ID,
-      jwks_uri: discovery.jwks_uri,
-      expectedNonce: tmp.nonce,
+    const idPayload=await verifyIdToken({
+      id_token: tokens.id_token, issuer: discovery.issuer, audience: process.env.IDP_CLIENT_ID, jwks_uri: discovery.jwks_uri, expectedNonce: tmp.nonce
     });
+    console.log("ID token payload keys:", Object.keys(idPayload));
 
-    const profile = toNormalizedProfile(idPayload);
-    if (!profile.email) {
-      return res.status(400).send("No email claim present for this account.");
+    const profile=toNormalizedProfile(idPayload); if(!profile.email) return res.status(400).send("No email claim present for this account.");
+
+    let member=await getMemberByEmail(profile.email);
+    if(!member){
+      const plan=process.env.MEMBERSTACK_DEFAULT_FREE_PLAN||"";
+      member=await createMember({ email: profile.email, firstName: profile.given_name||"", lastName: profile.family_name||"", planId: plan||undefined, json:{idp_sub: profile.sub, name: profile.name}, customFields:{} });
+    }else{
+      const updates={}; if(profile.given_name||profile.family_name){ updates.customFields={...(member.customFields||{})}; }
+      if(Object.keys(updates).length>0){ try{ await updateMember(member.id, updates); }catch{} }
     }
 
-    let member = await getMemberByEmail(profile.email);
-    if (!member) {
-      const plan = process.env.MEMBERSTACK_DEFAULT_FREE_PLAN || "";
-      member = await createMember({
-        email: profile.email,
-        firstName: profile.given_name || "",
-        lastName: profile.family_name || "",
-        planId: plan || undefined,
-        json: { idp_sub: profile.sub, name: profile.name },
-        customFields: {},
-      });
-    } else {
-      const updates = {};
-      if (profile.given_name || profile.family_name) {
-        updates.customFields = {
-          ...(member.customFields || {}),
-        };
-      }
-      if (Object.keys(updates).length > 0) {
-        try { await updateMember(member.id, updates); } catch {}
-      }
-    }
-
-    const session = {
-      email: profile.email,
-      sub: profile.sub,
-      memberId: member?.id || null,
-      ts: Date.now(),
-    };
-    res.cookie(process.env.SESSION_COOKIE_NAME || "app_session", JSON.stringify(session), {
-      ...COOKIE_FLAGS,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-
-    return res.redirect(`${process.env.APP_BASE_URL || ""}/dashboard`);
-  } catch (e) {
+    const session={ email: profile.email, sub: profile.sub, memberId: member?.id||null, ts: Date.now() };
+    res.cookie(process.env.SESSION_COOKIE_NAME||"app_session", JSON.stringify(session), {...COOKIE_FLAGS, maxAge: 7*24*60*60*1000});
+    return res.redirect(`${process.env.APP_BASE_URL||""}/dashboard`);
+  }catch(e){
     console.error("Callback error:", e);
-    const msg = e?.message || String(e);
-    return res
-      .status(500)
-      .send(`<pre style="white-space:pre-wrap;font-family:system-ui">
-  Callback failed:
-  ${msg}
-  </pre>`);
+    return res.status(500).send(`<pre style="white-space:pre-wrap;font-family:system-ui">
+Callback failed:
+${e?.message||String(e)}
+</pre>`);
   }
 });
 
-app.get("/logout", (req, res) => {
-  res.clearCookie(process.env.SESSION_COOKIE_NAME || "app_session", COOKIE_FLAGS);
-  res.redirect("/");
-});
+app.get("/logout",(req,res)=>{ res.clearCookie(process.env.SESSION_COOKIE_NAME||"app_session", COOKIE_FLAGS); res.redirect("/"); });
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Listening on port ${port}`);
-});
+const port=process.env.PORT||3000; app.listen(port, ()=>console.log(`Listening on port ${port}`));
