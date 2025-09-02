@@ -71,7 +71,7 @@ app.get("/auth/callback", async (req,res)=>{
 
     const session={ email: profile.email, sub: profile.sub, memberId: member?.id||null, ts: Date.now() };
     res.cookie(process.env.SESSION_COOKIE_NAME||"app_session", JSON.stringify(session), {...COOKIE_FLAGS, maxAge: 7*24*60*60*1000});
-    return res.redirect(`${process.env.APP_BASE_URL||""}/dashboard`);
+    return res.redirect(`${process.env.APP_BASE_URL || ""}/membership/home`);
   }catch(e){
     console.error("Callback error:", e);
     return res.status(500).send(`<pre style="white-space:pre-wrap;font-family:system-ui">
