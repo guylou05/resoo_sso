@@ -4,6 +4,7 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createSessionToken, createMagicLink } from "./memberstack.js";
 
 import { generateCodeVerifier, generateCodeChallenge, randomString, getDiscovery, buildAuthorizeUrl, exchangeCodeForTokens, verifyIdToken, toNormalizedProfile } from "./auth-helpers.js";
 import { getMemberByEmail, createMember, updateMember, createSessionToken } from "./memberstack.js";
@@ -69,23 +70,46 @@ app.get("/auth/callback", async (req,res)=>{
     res.cookie(process.env.SESSION_COOKIE_NAME||"app_session", JSON.stringify(session), {...COOKIE_FLAGS, maxAge: 7*24*60*60*1000});
 
 // === Plan A: establish Memberstack browser session via token ===
-let token = null;
-try {
-  token = await createSessionToken(member.id);
-} catch (e) {
-  console.error("Failed to create Memberstack session token:", e?.response?.data || e?.message || e);
-}
-
+let tokenRes = await createSessionToken(member.id);
 const finalDest = `${process.env.APP_BASE_URL || ""}${tmp.returnTo || (process.env.POST_LOGIN_PATH || "/membership/home")}`;
 
-if (!token) {
-  // Fallback: just redirect (member exists; page may be gated by plan)
-  return res.redirect(finalDest);
+if (tokenRes?.token) {
+  const escapedToken = JSON.stringify(tokenRes.token).replace(/</g, "\u003c");
+  const escapedDest  = JSON.stringify(finalDest).replace(/</g, "\u003c");
+  return res.status(200).send(`<!doctype html>
+<meta charset="utf-8"><title>Signing you in…</title>
+<script data-memberstack-app="YOUR_PUBLIC_KEY_HERE" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
+<p style="font-family:system-ui,Segoe UI,Arial;margin:2rem;">Signing you in…</p>
+<script>
+  (function(){
+    function go(){ window.location.replace(${escapedDest}); }
+    function onReady(fn){
+      if (window.MemberStack && window.MemberStack.onReady) return window.MemberStack.onReady.then(fn).catch(go);
+      document.addEventListener('msready', function(){ onReady(fn); }, { once: true });
+      setTimeout(fn, 4000);
+    }
+    onReady(async function(ms){
+      try {
+        ms = ms || (window.MemberStack && (await window.MemberStack.onReady));
+        if (ms && ms.loginWithToken) { await ms.loginWithToken(${escapedToken}); }
+      } catch(_) {}
+      go();
+    });
+    setTimeout(go, 5000);
+  })();
+</script>`);
 }
 
-// Serve a tiny bridge page that logs into Memberstack via token, then redirects
-const escapedToken = JSON.stringify(token).replace(/</g, "\\u003c");
-const escapedDest = JSON.stringify(finalDest).replace(/</g, "\\u003c");
+// If token didn’t work, try a magic link (one-time login) and redirect there
+const magic = await createMagicLink(member.id, finalDest);
+if (magic?.url) {
+  console.log("[MS] redirecting to magic link");
+  return res.redirect(magic.url);
+}
+
+// Fallback: just go to the final page (may be gated if no session)
+console.warn("[MS] no token or magic link; redirecting without session");
+return res.redirect(finalDest);
 return res.status(200).send(`<!doctype html>
 <meta charset="utf-8"><title>Signing you in…</title>
 <script data-memberstack-app="YOUR_PUBLIC_KEY_HERE" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
