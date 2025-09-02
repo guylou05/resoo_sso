@@ -5,9 +5,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Login — Memberstack + Microsoft Entra</title>
+    <script data-memberstack-app="pk_24c5c2716e4bca23baba" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
     <style>
       body { font-family: system-ui, sans-serif; margin: 2rem; }
-      .card { max-width: 520px; border: 1px solid #e5e7eb; border-radius: 12px; padding: 2rem; }
+      .card { max-width: 560px; border: 1px solid #e5e7eb; border-radius: 12px; padding: 2rem; }
       button { padding: 0.75rem 1rem; border: 0; border-radius: 10px; cursor: pointer; }
       .ms { background: black; color: white; }
       a { color: #2563eb; text-decoration: none; }
@@ -16,11 +17,9 @@
   <body>
     <div class="card">
       <h1>Sign in</h1>
-      <p>Use your Microsoft account in the <strong>same tab</strong> (no popups/overlay).</p>
+      <p>Continue with your Microsoft account.</p>
       <p><a href="/auth/login"><button class="ms">Continue with Microsoft</button></a></p>
-      <p style="margin-top:1rem; font-size: 0.9rem; color:#6b7280;">
-        Redirect flow only. After login you’ll land on <code>/dashboard</code>.
-      </p>
+
     </div>
   </body>
 </html>
