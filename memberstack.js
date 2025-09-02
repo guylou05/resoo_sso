@@ -61,7 +61,7 @@ export async function getMemberByEmail(email) {
 export async function createMember({ email, firstName, lastName, planId, json = {}, customFields = {} }) {
   const url = `${BASE}/members`;
   const strongPassword = cryptoRandom(24);
-  const payload = { email, password: strongPassword, customFields, json };
+  const payload = { email, password: strongPassword, firstName: firstName || "", lastName: lastName || "", customFields, json };
   if (planId) payload.plans = [{ planId }];
   const res = await axios.post(url, payload, { headers });
   return res.data?.data || res.data;
