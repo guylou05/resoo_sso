@@ -4,10 +4,9 @@ import express from "express";
 import cookieParser from "cookie-parser";
 import path from "path";
 import { fileURLToPath } from "url";
-import { createSessionToken, createMagicLink } from "./memberstack.js";
 
 import { generateCodeVerifier, generateCodeChallenge, randomString, getDiscovery, buildAuthorizeUrl, exchangeCodeForTokens, verifyIdToken, toNormalizedProfile } from "./auth-helpers.js";
-import { getMemberByEmail, createMember, updateMember, createSessionToken } from "./memberstack.js";
+import { getMemberByEmail, createMember, updateMember, createSessionToken, createMagicLink } from "./memberstack.js";
 
 const __filename=fileURLToPath(import.meta.url); const __dirname=path.dirname(__filename);
 const app=express();
