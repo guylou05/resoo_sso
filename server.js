@@ -54,7 +54,7 @@ app.get("/auth/callback", async (req,res)=>{
     console.log("Tokens received keys:", Object.keys(tokens));
 
     const idPayload=await verifyIdToken({
-      id_token: tokens.id_token, issuer: discovery.issuer, audience: process.env.IDP_CLIENT_ID, jwks_uri: discovery.jwks_uri, expectedNonce: tmp.nonce
+      id_token: tokens.id_token, audience: process.env.IDP_CLIENT_ID, jwks_uri: discovery.jwks_uri, expectedNonce: tmp.nonce
     });
     console.log("ID token payload keys:", Object.keys(idPayload));
 
