@@ -6,10 +6,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import { generateCodeVerifier, generateCodeChallenge, randomString, getDiscovery, buildAuthorizeUrl, exchangeCodeForTokens, verifyIdToken, toNormalizedProfile } from "./auth-helpers.js";
-import { getMemberByEmail, createMember, updateMember } from "./memberstack.js";
+import { getMemberByEmail, createMember, updateMember, createSessionToken } from "./memberstack.js";
 
 const __filename=fileURLToPath(import.meta.url); const __dirname=path.dirname(__filename);
 const app=express();
+app.set('trust proxy', 1);
 app.use(cookieParser(process.env.COOKIE_SECRET||"dev_secret"));
 app.use(express.json()); app.use(express.urlencoded({extended:true})); app.use(express.static(path.join(__dirname,"public")));
 
@@ -23,8 +24,10 @@ app.get("/api/me",(req,res)=>{ const raw=req.signedCookies[process.env.SESSION_C
 app.get("/auth/login", async (req,res)=>{
   try{
     const discovery=await getDiscovery(process.env.IDP_DISCOVERY_URL);
+    const allowed=new Set(["/","/dashboard","/membership/home","/app"]);
+    const rt=allowed.has(req.query.returnTo)?req.query.returnTo:(process.env.POST_LOGIN_PATH||"/membership/home");
     const state=randomString(24), nonce=randomString(24), code_verifier=generateCodeVerifier(), code_challenge=await generateCodeChallenge(code_verifier);
-    res.cookie(OIDC_TEMP_COOKIE, JSON.stringify({state,nonce,code_verifier,createdAt:Date.now()}), {...COOKIE_FLAGS, maxAge:5*60*1000});
+    res.cookie(OIDC_TEMP_COOKIE, JSON.stringify({state,nonce,code_verifier,createdAt:Date.now(),returnTo:rt}), {...COOKIE_FLAGS, maxAge:5*60*1000});
     const authorizeUrl=buildAuthorizeUrl({
       authorization_endpoint: discovery.authorization_endpoint,
       client_id: process.env.IDP_CLIENT_ID,
@@ -45,17 +48,10 @@ app.get("/auth/callback", async (req,res)=>{
     const tmp=JSON.parse(tmpRaw); res.clearCookie(OIDC_TEMP_COOKIE, COOKIE_FLAGS); if(state!==tmp.state) return res.status(400).send("State mismatch");
 
     const discovery=await getDiscovery(process.env.IDP_DISCOVERY_URL);
-    const tokens=await exchangeCodeForTokens({
-      token_endpoint: discovery.token_endpoint,
-      client_id: process.env.IDP_CLIENT_ID,
-      client_secret: process.env.IDP_CLIENT_SECRET,
-      code, redirect_uri: process.env.IDP_REDIRECT_URI, code_verifier: tmp.code_verifier
-    });
+    const tokens=await exchangeCodeForTokens({ token_endpoint: discovery.token_endpoint, client_id: process.env.IDP_CLIENT_ID, client_secret: process.env.IDP_CLIENT_SECRET, code, redirect_uri: process.env.IDP_REDIRECT_URI, code_verifier: tmp.code_verifier });
     console.log("Tokens received keys:", Object.keys(tokens));
 
-    const idPayload=await verifyIdToken({
-      id_token: tokens.id_token, audience: process.env.IDP_CLIENT_ID, jwks_uri: discovery.jwks_uri, expectedNonce: tmp.nonce
-    });
+    const idPayload=await verifyIdToken({ id_token: tokens.id_token, audience: process.env.IDP_CLIENT_ID, jwks_uri: discovery.jwks_uri, expectedNonce: tmp.nonce });
     console.log("ID token payload keys:", Object.keys(idPayload));
 
     const profile=toNormalizedProfile(idPayload); if(!profile.email) return res.status(400).send("No email claim present for this account.");
@@ -71,7 +67,36 @@ app.get("/auth/callback", async (req,res)=>{
 
     const session={ email: profile.email, sub: profile.sub, memberId: member?.id||null, ts: Date.now() };
     res.cookie(process.env.SESSION_COOKIE_NAME||"app_session", JSON.stringify(session), {...COOKIE_FLAGS, maxAge: 7*24*60*60*1000});
-    return res.redirect(`${process.env.APP_BASE_URL || ""}/membership/home`);
+
+    // Plan A: establish Memberstack browser session
+    let token=null; try{ token=await createSessionToken(member.id); }catch(e){ console.error("Failed to create Memberstack session token:", e?.response?.data || e?.message || e); }
+    const finalDest=`${process.env.APP_BASE_URL||""}${tmp.returnTo || (process.env.POST_LOGIN_PATH || "/membership/home")}`;
+
+    if(!token){ return res.redirect(finalDest); }
+
+    const t=JSON.stringify(token).replace(/</g,"\u003c"); const d=JSON.stringify(finalDest).replace(/</g,"\u003c");
+    return res.status(200).send(`<!doctype html>
+<meta charset="utf-8"><title>Signing you in…</title>
+<script data-memberstack-app="YOUR_PUBLIC_KEY_HERE" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
+<p style="font-family:system-ui,Segoe UI,Arial;margin:2rem;">Signing you in…</p>
+<script>
+  (function(){
+    function go(){ window.location.replace(${d}); }
+    function onReady(fn){
+      if (window.MemberStack && window.MemberStack.onReady) return window.MemberStack.onReady.then(fn).catch(go);
+      document.addEventListener('msready', function(){ onReady(fn); }, { once: true });
+      setTimeout(fn, 4000);
+    }
+    onReady(async function(ms){
+      try {
+        ms = ms || (window.MemberStack && (await window.MemberStack.onReady));
+        if (ms && ms.loginWithToken) { await ms.loginWithToken(${t}); }
+      } catch(_) {}
+      go();
+    });
+    setTimeout(go, 5000);
+  })();
+</script>`);
   }catch(e){
     console.error("Callback error:", e);
     return res.status(500).send(`<pre style="white-space:pre-wrap;font-family:system-ui">

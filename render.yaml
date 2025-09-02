@@ -20,6 +20,8 @@ services:
         value: openid profile email
       - key: APP_BASE_URL
         sync: false
+      - key: POST_LOGIN_PATH
+        value: /membership/home
       - key: SESSION_COOKIE_NAME
         value: app_session
       - key: COOKIE_SECRET
