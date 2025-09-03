@@ -42,67 +42,13 @@ const COOKIE_FLAGS = {
 
 const OIDC_TEMP_COOKIE = "oidc_tmp";
 
-app.get("/", (req, res) => {
-  res.status(200).send("<h1>OK</h1><p><a href='/auth/login'>Continue with Microsoft</a></p>");
-});
-
-app.get("/api/me", (req, res) => {
-  const sessRaw = req.signedCookies[process.env.SESSION_COOKIE_NAME || "app_session"];
-  if (!sessRaw) return res.status(401).json({ error: "not_authenticated" });
-  try {
-    const sess = JSON.parse(sessRaw);
-    return res.json({ user: sess });
-  } catch {
-    return res.status(401).json({ error: "invalid_session" });
-  }
-});
-
-app.get("/auth/login", async (req, res) => {
-  try {
-    const discovery = await getDiscovery(process.env.IDP_DISCOVERY_URL);
-
-    const allowed = new Set(["/", "/dashboard", "/membership/home", "/app"]);
-    const rt = allowed.has(req.query.returnTo)
-      ? req.query.returnTo
-      : process.env.POST_LOGIN_PATH || "/membership/home";
-
-    const state = randomString(24);
-    const nonce = randomString(24);
-    const code_verifier = generateCodeVerifier();
-    const code_challenge = await generateCodeChallenge(code_verifier);
-
-    const tmp = { state, nonce, code_verifier, createdAt: Date.now(), returnTo: rt };
-    res.cookie(OIDC_TEMP_COOKIE, JSON.stringify(tmp), { ...COOKIE_FLAGS, maxAge: 5 * 60 * 1000 });
-
-    const authorizeUrl = buildAuthorizeUrl({
-      authorization_endpoint: discovery.authorization_endpoint,
-      client_id: process.env.IDP_CLIENT_ID,
-      redirect_uri: process.env.IDP_REDIRECT_URI,
-      scope: process.env.IDP_SCOPE || "openid profile email",
-      state,
-      nonce,
-      code_challenge,
-    });
-
-    console.log("Authorize URL:", authorizeUrl);
-    return res.redirect(authorizeUrl);
-  } catch (e) {
-    console.error("Login init error:", e);
-    return res.status(500).send(`<pre>Login init failed:\n${e?.message || e}</pre>`);
-  }
-});
-
 app.get("/auth/callback", async (req, res) => {
   try {
-    console.log("Callback query:", req.query);
     const { code, state } = req.query;
-    if (!code || !state) return res.status(400).send("Missing code/state");
-
     const tmpRaw = req.signedCookies[OIDC_TEMP_COOKIE];
     if (!tmpRaw) return res.status(400).send("Auth flow expired");
     const tmp = JSON.parse(tmpRaw);
     res.clearCookie(OIDC_TEMP_COOKIE, COOKIE_FLAGS);
-    if (state !== tmp.state) return res.status(400).send("State mismatch");
 
     const discovery = await getDiscovery(process.env.IDP_DISCOVERY_URL);
     const tokens = await exchangeCodeForTokens({
@@ -113,7 +59,6 @@ app.get("/auth/callback", async (req, res) => {
       redirect_uri: process.env.IDP_REDIRECT_URI,
       code_verifier: tmp.code_verifier,
     });
-    console.log("Tokens received keys:", Object.keys(tokens));
 
     const idPayload = await verifyIdToken({
       id_token: tokens.id_token,
@@ -121,121 +66,71 @@ app.get("/auth/callback", async (req, res) => {
       jwks_uri: discovery.jwks_uri,
       expectedNonce: tmp.nonce,
     });
-    console.log("ID token payload keys:", Object.keys(idPayload));
 
     const profile = toNormalizedProfile(idPayload);
-    console.log("PROFILE NAMES:", profile.given_name, profile.family_name);
-    if (!profile.email) return res.status(400).send("No email claim present for this account.");
-
-    // ===== Upsert Member with custom-field names =====
     const desiredFirst = (profile.given_name || "").trim();
-    const desiredLast  = (profile.family_name || "").trim();
+    const desiredLast = (profile.family_name || "").trim();
 
     let member = await getMemberByEmail(profile.email);
-
     if (!member) {
-      const plan = process.env.MEMBERSTACK_DEFAULT_FREE_PLAN || "";
       member = await createMember({
         email: profile.email,
-        firstName: desiredFirst,   // native (harmless if ignored)
-        lastName:  desiredLast,    // native (harmless if ignored)
-        planId: plan || undefined,
-        json: { idp_sub: profile.sub, name: profile.name },
-        // ✅ your project's custom fields
-        customFields: {
-          "first-name": desiredFirst,
-          "last-name":  desiredLast,
-        },
-      });
-      console.log("[MS] created member:", member?.id, {
-        firstName: member?.firstName, lastName: member?.lastName, cf: member?.customFields
+        firstName: desiredFirst,
+        lastName: desiredLast,
+        customFields: { "first-name": desiredFirst, "last-name": desiredLast },
       });
     } else {
-      const cf = member.customFields ?? member.custom_fields ?? {};
-      const currentFirstNative = member.firstName ?? member.first_name ?? "";
-      const currentLastNative  = member.lastName  ?? member.last_name  ?? "";
-      const currentFirstCF = cf["first-name"] ?? "";
-      const currentLastCF  = cf["last-name"]  ?? "";
-
-      const updates = {};
-      const newCF = { ...cf };
-
-      if (desiredFirst && desiredFirst != currentFirstNative) updates.firstName = desiredFirst;
-      if (desiredLast  && desiredLast  != currentLastNative)  updates.lastName  = desiredLast;
-
-      if (desiredFirst && desiredFirst != currentFirstCF) newCF["first-name"] = desiredFirst;
-      if (desiredLast  && desiredLast  != currentLastCF)  newCF["last-name"]  = desiredLast;
-
-      if (JSON.stringify(newCF) != JSON.stringify(cf)) updates.customFields = newCF;
-
-      if (Object.keys(updates).length) {
-        const updated = await updateMember(member.id, updates);
-        console.log("[MS] updated member:", member.id, { sent: updates, now: { firstName: updated?.firstName, lastName: updated?.lastName, cf: updated?.customFields } });
-        member = updated || member;
-      }
+      const cf = member.customFields ?? {};
+      const updates = { customFields: { ...cf, "first-name": desiredFirst, "last-name": desiredLast } };
+      member = await updateMember(member.id, updates);
     }
 
-    // ===== App cookie session (optional) =====
-    const session = { email: profile.email, sub: profile.sub, memberId: member?.id || null, ts: Date.now() };
-    res.cookie(process.env.SESSION_COOKIE_NAME || "app_session", JSON.stringify(session), {
-      ...COOKIE_FLAGS,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
-
-    // ===== Establish Memberstack browser session =====
     const finalDest = `${process.env.APP_BASE_URL || ""}${tmp.returnTo || (process.env.POST_LOGIN_PATH || "/membership/home")}`;
-
     let tokenRes = await createSessionToken(member.id);
+
     if (tokenRes?.token) {
-      const escapedToken = JSON.stringify(tokenRes.token).replace(/</g, "\u003c");
-      const escapedDest = JSON.stringify(finalDest).replace(/</g, "\u003c");
+      const escapedToken = JSON.stringify(tokenRes.token).replace(/</g, "\\u003c");
+      const escapedDest = JSON.stringify(finalDest).replace(/</g, "\\u003c");
       return res.status(200).send(`<!doctype html>
 <meta charset="utf-8"><title>Signing you in…</title>
 <script>
   window.memberstackConfig = { useCookies: true, setCookieOnRootDomain: true };
 </script>
 <script data-memberstack-app="YOUR_PUBLIC_KEY_HERE" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
-<p style="font-family:system-ui,Segoe UI,Arial;margin:2rem;">Signing you in…</p>
+<p>Finalizing login…</p>
 <script>
-  (function(){
-    function go(){ window.location.replace(${escapedDest}); }
-    function onReady(fn){
-      if (window.MemberStack && window.MemberStack.onReady) return window.MemberStack.onReady.then(fn).catch(go);
-      document.addEventListener('msready', function(){ onReady(fn); }, { once: true });
-      setTimeout(fn, 4000);
+  function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+  async function ensureSession(ms, token, totalMs = 9000){
+    try { if(ms?.loginWithToken) await ms.loginWithToken(token); } catch(e){}
+    const start = Date.now();
+    while(Date.now()-start < totalMs){
+      try{
+        const m = await ms.getCurrentMember();
+        if(m) return m;
+      }catch(e){}
+      await sleep(300);
     }
-    onReady(async function(ms){
-      try {
-        ms = ms || (window.MemberStack && (await window.MemberStack.onReady));
-        if (ms && ms.loginWithToken) { await ms.loginWithToken(${escapedToken}); }
-      } catch(_) {}
-      go();
-    });
-    setTimeout(go, 5000);
+    return null;
+  }
+  (async () => {
+    const ms = (window.MemberStack && (await window.MemberStack.onReady)) || null;
+    const member = ms && (await ensureSession(ms, ${escapedToken}));
+    if(member){ window.location.replace(${escapedDest}); }
+    else{
+      document.body.innerHTML = '<h1>We couldn’t finalize your login</h1><p>Check domain config and keys.</p>';
+      setTimeout(()=>window.location.replace(${escapedDest}), 3000);
+    }
   })();
 </script>`);
     }
 
     const magic = await createMagicLink(member.id, finalDest);
-    if (magic?.url) {
-      console.log("[MS] redirecting to magic link");
-      return res.redirect(magic.url);
-    }
-
-    console.warn("[MS] no token or magic link; redirecting without session");
+    if (magic?.url) return res.redirect(magic.url);
     return res.redirect(finalDest);
-  } catch (e) {
-    console.error("Callback error:", e);
-    return res.status(500).send(`<pre style="white-space:pre-wrap;font-family:system-ui">
-Callback failed:
-${e?.message || String(e)}
-</pre>`);
-  }
-});
 
-app.get("/logout", (req, res) => {
-  res.clearCookie(process.env.SESSION_COOKIE_NAME || "app_session", COOKIE_FLAGS);
-  res.redirect("/");
+  } catch (e) {
+    return res.status(500).send(`Callback failed: ${e?.message}`);
+  }
 });
 
 const port = process.env.PORT || 3000;
