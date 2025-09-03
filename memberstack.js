@@ -6,7 +6,6 @@ if (!SECRET) console.warn("[memberstack] MEMBERSTACK_SECRET_KEY is not set.");
 
 const headers = { "X-API-KEY": SECRET || "", "Content-Type": "application/json" };
 
-/** Use collection endpoints to create a session token. Return { token } or null. */
 export async function createSessionToken(memberId) {
   const attempts = [
     { method: "post", url: `${BASE}/members/session`, body: { memberId } },
@@ -16,10 +15,8 @@ export async function createSessionToken(memberId) {
   for (const a of attempts) {
     try {
       const res = await axios({ method: a.method, url: a.url, data: a.body, headers });
-      console.log("[MS] token attempt OK:", a.url, "status:", res.status, "keys:", Object.keys(res.data||{}));
       const token = res?.data?.data?.token || res?.data?.token || res?.data?.sessionToken || res?.data?.jwt;
       if (token) return { token };
-      console.warn("[MS] token attempt had no token field:", a.url, res.data);
     } catch (e) {
       console.warn("[MS] token attempt failed:", a.url, e?.response?.status, e?.response?.data || e?.message);
     }
@@ -27,17 +24,18 @@ export async function createSessionToken(memberId) {
   return null;
 }
 
-/** Magic link via collection endpoint. Return { url } or null. */
 export async function createMagicLink(memberId, redirectTo) {
-  const a = { method: "post", url: `${BASE}/members/magic-link`, body: { memberId, redirectTo } };
   try {
-    const res = await axios({ method: a.method, url: a.url, data: a.body, headers });
-    console.log("[MS] magic-link OK:", a.url, "status:", res.status, "keys:", Object.keys(res.data||{}));
+    const res = await axios({
+      method: "post",
+      url: `${BASE}/members/magic-link`,
+      data: { memberId, redirectTo },
+      headers,
+    });
     const url = res?.data?.data?.url || res?.data?.url || res?.data?.link;
     if (url) return { url };
-    console.warn("[MS] magic-link had no url field:", a.url, res.data);
   } catch (e) {
-    console.warn("[MS] magic-link failed:", a.url, e?.response?.status, e?.response?.data || e?.message);
+    console.warn("[MS] magic-link failed:", e?.response?.status, e?.response?.data || e?.message);
   }
   return null;
 }
@@ -56,26 +54,21 @@ export async function getMemberByEmail(email) {
 export async function createMember({ email, firstName, lastName, planId, json = {}, customFields = {} }) {
   const url = `${BASE}/members`;
   const strongPassword = cryptoRandom(24);
-  // Send native names (harmless if ignored) + provided customFields
   const payload = {
     email,
     password: strongPassword,
     firstName: firstName || "",
-    lastName:  lastName  || "",
+    lastName: lastName || "",
     customFields,
     json,
   };
-  const planIdNorm = planId && typeof planId === "string" ? planId.trim() : "";
-  if (planIdNorm) payload.plans = [{ planId: planIdNorm }];
-  console.log("[MS] create payload:", payload);
+  if (planId) payload.plans = [{ planId }];
   const res = await axios.post(url, payload, { headers });
   return res.data?.data || res.data;
 }
 
 export async function updateMember(memberId, updates) {
   const url = `${BASE}/members/${memberId}`;
-  // Keep updates as-is, including customFields
-  console.log("[MS] patch body:", updates);
   const res = await axios.patch(url, updates, { headers });
   return res.data?.data || res.data;
 }
