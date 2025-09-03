@@ -6,25 +6,22 @@ if (!SECRET) console.warn("[memberstack] MEMBERSTACK_SECRET_KEY is not set.");
 
 const headers = { "X-API-KEY": SECRET || "", "Content-Type": "application/json" };
 
-/** Use collection endpoints only. Return { token } or null. */
+/** Use collection endpoints to create a session token. Return { token } or null. */
 export async function createSessionToken(memberId) {
   const attempts = [
     { method: "post", url: `${BASE}/members/session`, body: { memberId } },
     { method: "post", url: `${BASE}/sessions`, body: { memberId } },
     { method: "post", url: `${BASE}/auth/token`, body: { memberId } },
   ];
-
   for (const a of attempts) {
     try {
       const res = await axios({ method: a.method, url: a.url, data: a.body, headers });
-      console.log("[MS] token attempt OK:", a.url, "status:", res.status, "keys:", Object.keys(res.data || {}));
+      console.log("[MS] token attempt OK:", a.url, "status:", res.status, "keys:", Object.keys(res.data||{}));
       const token = res?.data?.data?.token || res?.data?.token || res?.data?.sessionToken || res?.data?.jwt;
       if (token) return { token };
       console.warn("[MS] token attempt had no token field:", a.url, res.data);
     } catch (e) {
-      const status = e?.response?.status;
-      const body = e?.response?.data || e?.message;
-      console.warn("[MS] token attempt failed:", a.url, status, body);
+      console.warn("[MS] token attempt failed:", a.url, e?.response?.status, e?.response?.data || e?.message);
     }
   }
   return null;
@@ -35,14 +32,12 @@ export async function createMagicLink(memberId, redirectTo) {
   const a = { method: "post", url: `${BASE}/members/magic-link`, body: { memberId, redirectTo } };
   try {
     const res = await axios({ method: a.method, url: a.url, data: a.body, headers });
-    console.log("[MS] magic-link OK:", a.url, "status:", res.status, "keys:", Object.keys(res.data || {}));
+    console.log("[MS] magic-link OK:", a.url, "status:", res.status, "keys:", Object.keys(res.data||{}));
     const url = res?.data?.data?.url || res?.data?.url || res?.data?.link;
     if (url) return { url };
     console.warn("[MS] magic-link had no url field:", a.url, res.data);
   } catch (e) {
-    const status = e?.response?.status;
-    const body = e?.response?.data || e?.message;
-    console.warn("[MS] magic-link failed:", a.url, status, body);
+    console.warn("[MS] magic-link failed:", a.url, e?.response?.status, e?.response?.data || e?.message);
   }
   return null;
 }
@@ -61,15 +56,35 @@ export async function getMemberByEmail(email) {
 export async function createMember({ email, firstName, lastName, planId, json = {}, customFields = {} }) {
   const url = `${BASE}/members`;
   const strongPassword = cryptoRandom(24);
-  const payload = { email, password: strongPassword, firstName: firstName || "", lastName: lastName || "", customFields, json };
+  // ✅ Send both camelCase and snake_case names to maximize compatibility.
+  const payload = {
+    email,
+    password: strongPassword,
+    firstName: firstName || "",
+    lastName:  lastName  || "",
+    first_name: firstName || "",
+    last_name:  lastName  || "",
+    customFields,
+    json,
+  };
   if (planId) payload.plans = [{ planId }];
+  console.log("[MS] create payload:", payload);
   const res = await axios.post(url, payload, { headers });
   return res.data?.data || res.data;
 }
 
 export async function updateMember(memberId, updates) {
   const url = `${BASE}/members/${memberId}`;
-  const res = await axios.patch(url, updates, { headers });
+  // Normalize into both shapes before sending
+  const body = {
+    ...updates,
+    firstName: updates.firstName ?? updates.first_name,
+    lastName:  updates.lastName  ?? updates.last_name,
+    first_name: updates.firstName ?? updates.first_name,
+    last_name:  updates.lastName  ?? updates.last_name,
+  };
+  console.log("[MS] patch body:", body);
+  const res = await axios.patch(url, body, { headers });
   return res.data?.data || res.data;
 }
 
