@@ -2,35 +2,29 @@ import crypto from "crypto";
 import fetch from "node-fetch";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
-/** Base64URL without padding */
 function base64url(buf) {
   return buf.toString("base64").replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-/** PKCE: high-entropy verifier */
 export function generateCodeVerifier(length = 64) {
   return base64url(crypto.randomBytes(length));
 }
 
-/** PKCE: SHA256 -> base64url challenge */
 export async function generateCodeChallenge(codeVerifier) {
   const hash = crypto.createHash("sha256").update(codeVerifier).digest();
   return base64url(hash);
 }
 
-/** Random URL-safe string (state/nonce) */
 export function randomString(n = 32) {
   return base64url(crypto.randomBytes(n));
 }
 
-/** OIDC discovery */
 export async function getDiscovery(discoveryUrl) {
   const res = await fetch(discoveryUrl);
   if (!res.ok) throw new Error(`Discovery failed: ${res.status}`);
   return res.json();
 }
 
-/** Build authorize URL for Microsoft v2 endpoints */
 export function buildAuthorizeUrl({
   authorization_endpoint,
   client_id,
@@ -53,7 +47,6 @@ export function buildAuthorizeUrl({
   return `${authorization_endpoint}?${params.toString()}`;
 }
 
-/** Exchange authorization_code for tokens */
 export async function exchangeCodeForTokens({
   token_endpoint,
   client_id,
@@ -79,22 +72,20 @@ export async function exchangeCodeForTokens({
   return res.json();
 }
 
-/** Verify ID token with multi-tenant support + tolerance */
 export async function verifyIdToken({ id_token, jwks_uri, audience, expectedNonce }) {
   const JWKS = createRemoteJWKSet(new URL(jwks_uri));
   const { payload } = await jwtVerify(id_token, JWKS, {
     audience,
     maxTokenAge: "10m",
-    clockTolerance: 300, // 5 minutes
+    clockTolerance: 300,
   });
   const iss = String(payload.iss || "");
-  const isMsIssuer = /^https:\/\/login\.microsoftonline\.com\/[0-9a-f-]+\/v2\.0$/i.test(iss);
+  const isMsIssuer = /^https:\\/\\/login\\.microsoftonline\\.com\\/[0-9a-f-]+\\/v2\\.0$/i.test(iss);
   if (!isMsIssuer) throw new Error(`unexpected issuer: ${iss}`);
   if (expectedNonce && payload.nonce !== expectedNonce) throw new Error("Nonce mismatch");
   return payload;
 }
 
-/** Normalize profile from ID token claims */
 export function toNormalizedProfile(payload) {
   const email = payload.email || payload.preferred_username || null;
   let given = payload.given_name || "";
