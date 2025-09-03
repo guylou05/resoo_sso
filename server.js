@@ -127,44 +127,62 @@ app.get("/auth/callback", async (req, res) => {
     console.log("PROFILE NAMES:", profile.given_name, profile.family_name);
     if (!profile.email) return res.status(400).send("No email claim present for this account.");
 
-    // Upsert Member with robust name handling
+    // ===== Upsert Member with custom-field names =====
+    const desiredFirst = (profile.given_name || "").trim();
+    const desiredLast  = (profile.family_name || "").trim();
+
     let member = await getMemberByEmail(profile.email);
 
     if (!member) {
       const plan = process.env.MEMBERSTACK_DEFAULT_FREE_PLAN || "";
       member = await createMember({
         email: profile.email,
-        firstName: profile.given_name || "",
-        lastName: profile.family_name || "",
+        firstName: desiredFirst,   // native (harmless if ignored)
+        lastName:  desiredLast,    // native (harmless if ignored)
         planId: plan || undefined,
         json: { idp_sub: profile.sub, name: profile.name },
-        customFields: {},
+        // ✅ your project's custom fields
+        customFields: {
+          "first-name": desiredFirst,
+          "last-name":  desiredLast,
+        },
       });
-      console.log("[MS] created member:", member?.id, member?.firstName, member?.lastName);
+      console.log("[MS] created member:", member?.id, {
+        firstName: member?.firstName, lastName: member?.lastName, cf: member?.customFields
+      });
     } else {
-      const currentFirst = member.firstName ?? member.first_name ?? member.firstname ?? "";
-      const currentLast = member.lastName ?? member.last_name ?? member.lastname ?? "";
-      const desiredFirst = profile.given_name || "";
-      const desiredLast = profile.family_name || "";
+      const cf = member.customFields ?? member.custom_fields ?? {};
+      const currentFirstNative = member.firstName ?? member.first_name ?? "";
+      const currentLastNative  = member.lastName  ?? member.last_name  ?? "";
+      const currentFirstCF = cf["first-name"] ?? "";
+      const currentLastCF  = cf["last-name"]  ?? "";
+
       const updates = {};
-      if (desiredFirst && desiredFirst !== currentFirst) updates.firstName = desiredFirst;
-      if (desiredLast && desiredLast !== currentLast) updates.lastName = desiredLast;
+      const newCF = { ...cf };
+
+      if (desiredFirst && desiredFirst != currentFirstNative) updates.firstName = desiredFirst;
+      if (desiredLast  && desiredLast  != currentLastNative)  updates.lastName  = desiredLast;
+
+      if (desiredFirst && desiredFirst != currentFirstCF) newCF["first-name"] = desiredFirst;
+      if (desiredLast  && desiredLast  != currentLastCF)  newCF["last-name"]  = desiredLast;
+
+      if (JSON.stringify(newCF) != JSON.stringify(cf)) updates.customFields = newCF;
 
       if (Object.keys(updates).length) {
         const updated = await updateMember(member.id, updates);
-        console.log("[MS] updated member names:", member.id, updates, "->", updated?.firstName, updated?.lastName);
+        console.log("[MS] updated member:", member.id, { sent: updates, now: { firstName: updated?.firstName, lastName: updated?.lastName, cf: updated?.customFields } });
         member = updated || member;
       }
     }
 
-    // App session (optional for your backend)
+    // ===== App cookie session (optional) =====
     const session = { email: profile.email, sub: profile.sub, memberId: member?.id || null, ts: Date.now() };
     res.cookie(process.env.SESSION_COOKIE_NAME || "app_session", JSON.stringify(session), {
       ...COOKIE_FLAGS,
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // Establish Memberstack browser session: token -> magic link -> plain redirect
+    // ===== Establish Memberstack browser session =====
     const finalDest = `${process.env.APP_BASE_URL || ""}${tmp.returnTo || (process.env.POST_LOGIN_PATH || "/membership/home")}`;
 
     let tokenRes = await createSessionToken(member.id);

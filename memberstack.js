@@ -56,18 +56,17 @@ export async function getMemberByEmail(email) {
 export async function createMember({ email, firstName, lastName, planId, json = {}, customFields = {} }) {
   const url = `${BASE}/members`;
   const strongPassword = cryptoRandom(24);
-  // ✅ Send both camelCase and snake_case names to maximize compatibility.
+  // Send native names (harmless if ignored) + provided customFields
   const payload = {
     email,
     password: strongPassword,
     firstName: firstName || "",
     lastName:  lastName  || "",
-    first_name: firstName || "",
-    last_name:  lastName  || "",
     customFields,
     json,
   };
-  if (planId) payload.plans = [{ planId }];
+  const planIdNorm = planId && typeof planId === "string" ? planId.trim() : "";
+  if (planIdNorm) payload.plans = [{ planId: planIdNorm }];
   console.log("[MS] create payload:", payload);
   const res = await axios.post(url, payload, { headers });
   return res.data?.data || res.data;
@@ -75,16 +74,9 @@ export async function createMember({ email, firstName, lastName, planId, json = 
 
 export async function updateMember(memberId, updates) {
   const url = `${BASE}/members/${memberId}`;
-  // Normalize into both shapes before sending
-  const body = {
-    ...updates,
-    firstName: updates.firstName ?? updates.first_name,
-    lastName:  updates.lastName  ?? updates.last_name,
-    first_name: updates.firstName ?? updates.first_name,
-    last_name:  updates.lastName  ?? updates.last_name,
-  };
-  console.log("[MS] patch body:", body);
-  const res = await axios.patch(url, body, { headers });
+  // Keep updates as-is, including customFields
+  console.log("[MS] patch body:", updates);
+  const res = await axios.patch(url, updates, { headers });
   return res.data?.data || res.data;
 }
 
