@@ -42,12 +42,12 @@ const COOKIE_FLAGS = {
 
 const OIDC_TEMP_COOKIE = "oidc_tmp";
 
-/** Optional: a quick “home” to test */
+/** (Optional) quick home for testing */
 app.get("/", (req, res) => {
   res.status(200).send("<h1>OK</h1><p><a href='/auth/login'>Continue with Microsoft</a></p>");
 });
 
-/** Optional: inspect app session */
+/** (Optional) inspect app session */
 app.get("/api/me", (req, res) => {
   const sessRaw = req.signedCookies[process.env.SESSION_COOKIE_NAME || "app_session"];
   if (!sessRaw) return res.status(401).json({ error: "not_authenticated" });
@@ -96,7 +96,6 @@ app.get("/auth/login", async (req, res) => {
 
 app.get("/auth/callback", async (req, res) => {
   try {
-    console.log("Callback query:", req.query);
     const { code, state } = req.query;
     if (!code || !state) return res.status(400).send("Missing code/state");
 
@@ -115,7 +114,6 @@ app.get("/auth/callback", async (req, res) => {
       redirect_uri: process.env.IDP_REDIRECT_URI,
       code_verifier: tmp.code_verifier,
     });
-    console.log("Tokens received keys:", Object.keys(tokens));
 
     const idPayload = await verifyIdToken({
       id_token: tokens.id_token,
@@ -123,13 +121,11 @@ app.get("/auth/callback", async (req, res) => {
       jwks_uri: discovery.jwks_uri,
       expectedNonce: tmp.nonce,
     });
-    console.log("ID token payload keys:", Object.keys(idPayload));
 
     const profile = toNormalizedProfile(idPayload);
-    console.log("PROFILE NAMES:", profile.given_name, profile.family_name);
     if (!profile.email) return res.status(400).send("No email claim present for this account.");
 
-    // ===== Upsert Member with your custom-field names =====
+    // ===== Upsert Member (writes native + your custom fields: first-name, last-name) =====
     const desiredFirst = (profile.given_name || "").trim();
     const desiredLast  = (profile.family_name || "").trim();
 
@@ -139,56 +135,44 @@ app.get("/auth/callback", async (req, res) => {
       const plan = process.env.MEMBERSTACK_DEFAULT_FREE_PLAN || "";
       member = await createMember({
         email: profile.email,
-        firstName: desiredFirst,   // native (harmless if ignored by your project)
-        lastName:  desiredLast,    // native
+        firstName: desiredFirst,  // native (harmless if ignored in your workspace)
+        lastName:  desiredLast,   // native
         planId: plan || undefined,
         json: { idp_sub: profile.sub, name: profile.name },
-        customFields: {
-          "first-name": desiredFirst,  // ✅ your project keys
-          "last-name":  desiredLast,
-        },
-      });
-      console.log("[MS] created member:", member?.id, {
-        firstName: member?.firstName, lastName: member?.lastName, cf: member?.customFields
+        customFields: { "first-name": desiredFirst, "last-name": desiredLast },
       });
     } else {
       const cf = member.customFields ?? member.custom_fields ?? {};
+      const updates = {
+        // update custom fields (primary for your project)
+        customFields: { ...cf, "first-name": desiredFirst, "last-name": desiredLast },
+      };
+      // optionally mirror into native fields
       const currentFirstNative = member.firstName ?? member.first_name ?? "";
       const currentLastNative  = member.lastName  ?? member.last_name  ?? "";
-      const currentFirstCF = cf["first-name"] ?? "";
-      const currentLastCF  = cf["last-name"]  ?? "";
-
-      const updates = {};
-      const newCF = { ...cf };
-
       if (desiredFirst && desiredFirst !== currentFirstNative) updates.firstName = desiredFirst;
       if (desiredLast  && desiredLast  !== currentLastNative)  updates.lastName  = desiredLast;
 
-      if (desiredFirst && desiredFirst !== currentFirstCF) newCF["first-name"] = desiredFirst;
-      if (desiredLast  && desiredLast  !== currentLastCF)  newCF["last-name"]  = desiredLast;
-
-      if (JSON.stringify(newCF) !== JSON.stringify(cf)) updates.customFields = newCF;
-
-      if (Object.keys(updates).length) {
-        const updated = await updateMember(member.id, updates);
-        console.log("[MS] updated member:", member.id, {
-          sent: updates,
-          now: { firstName: updated?.firstName, lastName: updated?.lastName, cf: updated?.customFields }
-        });
-        member = updated || member;
-      }
+      member = await updateMember(member.id, updates);
     }
 
-    // ===== Optional backend session =====
+    // ===== Optional backend session cookie =====
     const session = { email: profile.email, sub: profile.sub, memberId: member?.id || null, ts: Date.now() };
     res.cookie(process.env.SESSION_COOKIE_NAME || "app_session", JSON.stringify(session), {
-      ...COOKIE_FLAGS,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      ...COOKIE_FLAGS, maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // ===== Establish Memberstack browser session (token -> magic link -> fallback) =====
+    // ===== Finish: MAGIC LINK (PRIMARY) → TOKEN (FALLBACK) → PLAIN REDIRECT (LAST) =====
     const finalDest = `${process.env.APP_BASE_URL || ""}${tmp.returnTo || (process.env.POST_LOGIN_PATH || "/membership/home")}`;
 
+    // 1) Primary: Magic link (Memberstack sets session entirely client-side)
+    const magic = await createMagicLink(member.id, finalDest);
+    if (magic?.url) {
+      console.log("[MS] using magic link (primary)");
+      return res.redirect(magic.url);
+    }
+
+    // 2) Fallback: loginWithToken bridge page (kept for resilience)
     let tokenRes = await createSessionToken(member.id);
     if (tokenRes?.token) {
       const escapedToken = JSON.stringify(tokenRes.token).replace(/</g, "\u003c");
@@ -196,7 +180,7 @@ app.get("/auth/callback", async (req, res) => {
       return res.status(200).send(`<!doctype html>
 <meta charset="utf-8"><title>Signing you in…</title>
 <script>
-  // Critical for cross-subdomain session
+  // Required for cross-subdomain session
   window.memberstackConfig = { useCookies: true, setCookieOnRootDomain: true };
 </script>
 <script data-memberstack-app="YOUR_PUBLIC_KEY_HERE" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
@@ -204,39 +188,30 @@ app.get("/auth/callback", async (req, res) => {
 <script>
   function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
   async function ensureSession(ms, token, totalMs = 9000){
-    try { if (ms?.loginWithToken) await ms.loginWithToken(token); } catch(e){ console.log("loginWithToken error", e); }
+    try { if (ms?.loginWithToken) await ms.loginWithToken(token); } catch(e){}
     const start = Date.now();
     while (Date.now() - start < totalMs) {
-      try {
-        const m = await ms.getCurrentMember();
-        if (m) return m;      // ✅ session present
-      } catch(e){ console.log("getCurrentMember error", e); }
+      try { const m = await ms.getCurrentMember(); if (m) return m; } catch(e){}
       await sleep(300);
     }
-    return null;              // ❌ session never appeared
+    return null;
   }
   (async () => {
     const ms = (window.MemberStack && (await window.MemberStack.onReady)) || null;
     const member = ms && (await ensureSession(ms, ${escapedToken}));
-    if (member) {
-      window.location.replace(${escapedDest});
-    } else {
-      // Show a helpful message instead of a silent bounce
-      document.body.innerHTML = '<h1>Couldn’t finalize your login</h1><p>Memberstack session didn’t appear in time.</p><ul><li>Check Allowed Domains (both auth and app domains) in the same mode.</li><li>Ensure this config appears before the script on every page:<pre>window.memberstackConfig = { useCookies: true, setCookieOnRootDomain: true };</pre></li><li>Confirm your public key matches the server’s secret key workspace/mode.</li></ul>';
+    if (member) { window.location.replace(${escapedDest}); }
+    else {
+      document.body.innerHTML = '<h1>Couldn’t finalize your login</h1><p>Memberstack session didn’t appear in time.</p>';
       setTimeout(()=>window.location.replace(${escapedDest}), 3000);
     }
   })();
 </script>`);
     }
 
-    const magic = await createMagicLink(member.id, finalDest);
-    if (magic?.url) {
-      console.log("[MS] redirecting to magic link");
-      return res.redirect(magic.url);
-    }
-
-    console.warn("[MS] no token or magic link; redirecting without session");
+    // 3) Last resort: plain redirect
+    console.warn("[MS] no magic link or token; plain redirect");
     return res.redirect(finalDest);
+
   } catch (e) {
     console.error("Callback error:", e);
     return res.status(500).send(`<pre style="white-space:pre-wrap;font-family:system-ui">
