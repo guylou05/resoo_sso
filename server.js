@@ -180,8 +180,12 @@ app.get("/auth/callback", async (req, res) => {
       return res.status(200).send(`<!doctype html>
 <meta charset="utf-8"><title>Signing you in…</title>
 <script>
-  // Required for cross-subdomain session
-  window.memberstackConfig = { useCookies: true, setCookieOnRootDomain: true };
+  // ✅ Force Memberstack to use your custom domain
+  window.memberstackConfig = { 
+    useCookies: true, 
+    setCookieOnRootDomain: true,
+    apiDomain: "memberstack-client.resso.ai"
+  };
 </script>
 <script data-memberstack-app="YOUR_PUBLIC_KEY_HERE" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
 <p style="font-family:system-ui,Segoe UI,Arial;margin:2rem;">Finalizing your login…</p>
@@ -199,8 +203,9 @@ app.get("/auth/callback", async (req, res) => {
   (async () => {
     const ms = (window.MemberStack && (await window.MemberStack.onReady)) || null;
     const member = ms && (await ensureSession(ms, ${escapedToken}));
-    if (member) { window.location.replace(${escapedDest}); }
-    else {
+    if (member) {
+      window.location.replace(${escapedDest});
+    } else {
       document.body.innerHTML = '<h1>Couldn’t finalize your login</h1><p>Memberstack session didn’t appear in time.</p>';
       setTimeout(()=>window.location.replace(${escapedDest}), 3000);
     }
