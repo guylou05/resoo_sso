@@ -162,106 +162,101 @@ app.get("/auth/callback", async (req, res) => {
       ...COOKIE_FLAGS, maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // ===== Finish: MAGIC LINK (PRIMARY) → TOKEN (FALLBACK) → PLAIN REDIRECT (LAST) =====
-    const finalDest = `${process.env.APP_BASE_URL || ""}${tmp.returnTo || (process.env.POST_LOGIN_PATH || "/membership/home")}`;
+/ ===== Finish: TOKEN LOGIN ONLY =====
+const finalDest = `${process.env.APP_BASE_URL || ""}${tmp.returnTo || (process.env.POST_LOGIN_PATH || "/membership/home")}`;
 
-    // 1) Primary: Magic link (Memberstack sets session entirely client-side)
-    const magic = await createMagicLink(member.id, finalDest);
-    if (magic?.url) {
-      console.log("[MS] using magic link (primary)");
-      return res.redirect(magic.url);
-    }
-
-    // 2) Fallback: loginWithToken bridge page (kept for resilience)
-    let tokenRes = await createSessionToken(member.id);
-    if (tokenRes?.token) {
-      const escapedToken = JSON.stringify(tokenRes.token).replace(/</g, "\u003c");
-      const escapedDest  = JSON.stringify(finalDest).replace(/</g, "\u003c");
-      return res.status(200).send(`<!doctype html>
+// Try to get session token
+let tokenRes = await createSessionToken(member.id);
+if (tokenRes?.token) {
+  console.log("[MS] Using token login bridge");
+  const escapedToken = JSON.stringify(tokenRes.token).replace(/</g, "\u003c");
+  const escapedDest  = JSON.stringify(finalDest).replace(/</g, "\u003c");
+  
+  return res.status(200).send(`<!doctype html>
 <meta charset="utf-8"><title>Signing you in…</title>
+<script data-memberstack-app="pk_24c5c2716e4bca23baba" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
+<p style="font-family:system-ui,Segoe UI,Arial;margin:2rem;text-align:center;">Finalizing your login…</p>
 <script>
-  // ✅ Force Memberstack to use your custom domain
-  window.memberstackConfig = { 
-    useCookies: true, 
-    setCookieOnRootDomain: true,
-    apiDomain: "memberstack-client.resso.ai"
-  };
-</script>
-<script data-memberstack-app="app_clddpivji00150ulqcesy3zo7" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
-<p style="font-family:system-ui,Segoe UI,Arial;margin:2rem;">Finalizing your login…</p>
-<script>
-  console.log("Starting token login process...");
+  console.log("Starting Memberstack token login...");
   
   function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
   
-  async function ensureSession(ms, token, totalMs = 15000){
-    console.log("Attempting loginWithToken...");
-    try { 
-      if (ms?.loginWithToken) {
-        const result = await ms.loginWithToken(token);
-        console.log("loginWithToken result:", result);
-      }
-    } catch(e){
-      console.error("loginWithToken error:", e);
-    }
-    
-    const start = Date.now();
-    while (Date.now() - start < totalMs) {
-      try { 
-        const m = await ms.getCurrentMember(); 
-        if (m) {
-          console.log("Member found:", m);
-          return m;
-        }
-      } catch(e){
-        console.warn("getCurrentMember error:", e);
-      }
-      await sleep(500); // Increased polling interval
-    }
-    console.error("Session timeout - no member found");
-    return null;
-  }
-  
-  (async () => {
+  async function attemptLogin() {
     try {
-      console.log("Waiting for Memberstack...");
-      const ms = (window.MemberStack && (await window.MemberStack.onReady)) || null;
+      // Wait for Memberstack to load
+      console.log("Waiting for Memberstack to load...");
+      let ms = null;
+      let attempts = 0;
+      while (!ms && attempts < 50) {
+        if (window.MemberStack) {
+          ms = await window.MemberStack.onReady;
+          break;
+        }
+        await sleep(100);
+        attempts++;
+      }
       
       if (!ms) {
-        console.error("Memberstack failed to load");
-        return;
+        throw new Error("Memberstack failed to load");
       }
       
-      console.log("Memberstack ready, attempting login...");
-      const member = await ensureSession(ms, ${escapedToken});
+      console.log("Memberstack loaded, attempting token login...");
       
-      if (member) {
-        console.log("Login successful, redirecting...");
+      // Attempt login with token
+      const loginResult = await ms.loginWithToken(${escapedToken});
+      console.log("loginWithToken result:", loginResult);
+      
+      // Wait a moment for session to be established
+      await sleep(1000);
+      
+      // Verify we have a session
+      let member = null;
+      let sessionAttempts = 0;
+      while (!member && sessionAttempts < 20) {
+        try {
+          member = await ms.getCurrentMember();
+          if (member && member.loggedIn) {
+            console.log("Login successful, member:", member);
+            break;
+          }
+        } catch (e) {
+          console.warn("getCurrentMember attempt failed:", e);
+        }
+        await sleep(200);
+        sessionAttempts++;
+      }
+      
+      if (member && member.loggedIn) {
+        console.log("Redirecting to:", ${escapedDest});
         window.location.replace(${escapedDest});
       } else {
-        console.error("Login failed - no member session");
-        document.body.innerHTML = '<h1>Login failed</h1><p>Please check console for errors.</p>';
-        setTimeout(()=>window.location.replace(${escapedDest}), 5000);
+        throw new Error("Session not established after token login");
       }
+      
     } catch (error) {
-      console.error("Login process error:", error);
+      console.error("Login failed:", error);
+      document.body.innerHTML = \`
+        <div style="font-family:system-ui;padding:2rem;text-align:center;">
+          <h1>Login Error</h1>
+          <p>Authentication failed: \${error.message}</p>
+          <p><a href="/auth/login">Try Again</a></p>
+        </div>\`;
     }
-  })();
-</script>`);
-    }
-
-    // 3) Last resort: plain redirect
-    console.warn("[MS] no magic link or token; plain redirect");
-    return res.redirect(finalDest);
-
-  } catch (e) {
-    console.error("Callback error:", e);
-    return res.status(500).send(`<pre style="white-space:pre-wrap;font-family:system-ui">
-Callback failed:
-${e?.message || String(e)}
-</pre>`);
   }
-});
+  
+  // Start the login process
+  attemptLogin();
+</script>`);
+}
+
+// If no token available, show error
+console.error("[MS] No session token available, cannot authenticate");
+return res.status(500).send(`
+<div style="font-family:system-ui;padding:2rem;text-align:center;">
+  <h1>Authentication Error</h1>
+  <p>Unable to create session token. Please try again.</p>
+  <p><a href="/auth/login">Try Again</a></p>
+</div>`);
 
 app.get("/logout", (req, res) => {
   res.clearCookie(process.env.SESSION_COOKIE_NAME || "app_session", COOKIE_FLAGS);
