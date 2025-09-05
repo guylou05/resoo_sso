@@ -162,7 +162,7 @@ app.get("/auth/callback", async (req, res) => {
       ...COOKIE_FLAGS, maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-/ ===== Finish: TOKEN LOGIN ONLY =====
+// ===== Finish: TOKEN LOGIN ONLY =====
 const finalDest = `${process.env.APP_BASE_URL || ""}${tmp.returnTo || (process.env.POST_LOGIN_PATH || "/membership/home")}`;
 
 // Try to get session token
