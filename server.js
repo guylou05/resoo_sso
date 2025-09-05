@@ -187,7 +187,7 @@ app.get("/auth/callback", async (req, res) => {
     apiDomain: "memberstack-client.resso.ai"
   };
 </script>
-<script data-memberstack-app="YOUR_PUBLIC_KEY_HERE" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
+<script data-memberstack-app="pk_24c5c2716e4bca23baba" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
 <p style="font-family:system-ui,Segoe UI,Arial;margin:2rem;">Finalizing your login…</p>
 <script>
   function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
