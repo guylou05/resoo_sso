@@ -187,27 +187,64 @@ app.get("/auth/callback", async (req, res) => {
     apiDomain: "memberstack-client.resso.ai"
   };
 </script>
-<script data-memberstack-app="pk_24c5c2716e4bca23baba" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
+<script data-memberstack-app="app_clddpivji00150ulqcesy3zo7" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
 <p style="font-family:system-ui,Segoe UI,Arial;margin:2rem;">Finalizing your login…</p>
 <script>
+  console.log("Starting token login process...");
+  
   function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
-  async function ensureSession(ms, token, totalMs = 9000){
-    try { if (ms?.loginWithToken) await ms.loginWithToken(token); } catch(e){}
+  
+  async function ensureSession(ms, token, totalMs = 15000){
+    console.log("Attempting loginWithToken...");
+    try { 
+      if (ms?.loginWithToken) {
+        const result = await ms.loginWithToken(token);
+        console.log("loginWithToken result:", result);
+      }
+    } catch(e){
+      console.error("loginWithToken error:", e);
+    }
+    
     const start = Date.now();
     while (Date.now() - start < totalMs) {
-      try { const m = await ms.getCurrentMember(); if (m) return m; } catch(e){}
-      await sleep(300);
+      try { 
+        const m = await ms.getCurrentMember(); 
+        if (m) {
+          console.log("Member found:", m);
+          return m;
+        }
+      } catch(e){
+        console.warn("getCurrentMember error:", e);
+      }
+      await sleep(500); // Increased polling interval
     }
+    console.error("Session timeout - no member found");
     return null;
   }
+  
   (async () => {
-    const ms = (window.MemberStack && (await window.MemberStack.onReady)) || null;
-    const member = ms && (await ensureSession(ms, ${escapedToken}));
-    if (member) {
-      window.location.replace(${escapedDest});
-    } else {
-      document.body.innerHTML = '<h1>Couldn’t finalize your login</h1><p>Memberstack session didn’t appear in time.</p>';
-      setTimeout(()=>window.location.replace(${escapedDest}), 3000);
+    try {
+      console.log("Waiting for Memberstack...");
+      const ms = (window.MemberStack && (await window.MemberStack.onReady)) || null;
+      
+      if (!ms) {
+        console.error("Memberstack failed to load");
+        return;
+      }
+      
+      console.log("Memberstack ready, attempting login...");
+      const member = await ensureSession(ms, ${escapedToken});
+      
+      if (member) {
+        console.log("Login successful, redirecting...");
+        window.location.replace(${escapedDest});
+      } else {
+        console.error("Login failed - no member session");
+        document.body.innerHTML = '<h1>Login failed</h1><p>Please check console for errors.</p>';
+        setTimeout(()=>window.location.replace(${escapedDest}), 5000);
+      }
+    } catch (error) {
+      console.error("Login process error:", error);
     }
   })();
 </script>`);
