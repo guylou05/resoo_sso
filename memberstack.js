@@ -31,13 +31,23 @@ export async function createSessionToken(memberId) {
 export async function createMagicLink(memberId, redirectTo) {
   const a = { method: "post", url: `${BASE}/members/magic-link`, body: { memberId, redirectTo } };
   try {
+    console.log("[MS] Attempting magic-link for memberId:", memberId, "redirectTo:", redirectTo);
     const res = await axios({ method: a.method, url: a.url, data: a.body, headers });
-    console.log("[MS] magic-link OK:", a.url, "status:", res.status, "keys:", Object.keys(res.data||{}));
+    console.log("[MS] magic-link response:", res.status, res.data);
+    
     const url = res?.data?.data?.url || res?.data?.url || res?.data?.link;
-    if (url) return { url };
-    console.warn("[MS] magic-link had no url field:", a.url, res.data);
+    if (url) {
+      console.log("[MS] Magic link created successfully:", url);
+      return { url };
+    }
+    console.warn("[MS] magic-link had no url field:", res.data);
   } catch (e) {
-    console.warn("[MS] magic-link failed:", a.url, e?.response?.status, e?.response?.data || e?.message);
+    console.error("[MS] magic-link ERROR:", {
+      url: a.url,
+      status: e?.response?.status,
+      data: e?.response?.data,
+      message: e?.message
+    });
   }
   return null;
 }
