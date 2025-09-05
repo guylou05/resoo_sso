@@ -8,26 +8,65 @@ const headers = { "X-API-KEY": SECRET || "", "Content-Type": "application/json" 
 
 /** Use collection endpoints to create a session token. Return { token } or null. */
 export async function createSessionToken(memberId) {
+  console.log("[MS] Attempting to create session token for member:", memberId);
+  
   const attempts = [
+    { method: "post", url: `${BASE}/members/${memberId}/sessions`, body: {} },
     { method: "post", url: `${BASE}/members/session`, body: { memberId } },
     { method: "post", url: `${BASE}/sessions`, body: { memberId } },
+    { method: "post", url: `${BASE}/auth/sessions`, body: { memberId } },
     { method: "post", url: `${BASE}/auth/token`, body: { memberId } },
   ];
+  
   for (const a of attempts) {
     try {
-      const res = await axios({ method: a.method, url: a.url, data: a.body, headers });
-      console.log("[MS] token attempt OK:", a.url, "status:", res.status, "keys:", Object.keys(res.data||{}));
-      const token = res?.data?.data?.token || res?.data?.token || res?.data?.sessionToken || res?.data?.jwt;
-      if (token) return { token };
-      console.warn("[MS] token attempt had no token field:", a.url, res.data);
+      console.log("[MS] Trying token endpoint:", a.url);
+      const res = await axios({ 
+        method: a.method, 
+        url: a.url, 
+        data: a.body, 
+        headers,
+        timeout: 10000 // 10 second timeout
+      });
+      
+      console.log("[MS] Token attempt SUCCESS:", {
+        url: a.url,
+        status: res.status,
+        responseKeys: Object.keys(res.data || {}),
+        responseData: res.data
+      });
+      
+      // Try different possible token field names
+      const token = res?.data?.data?.token || 
+                   res?.data?.token || 
+                   res?.data?.sessionToken || 
+                   res?.data?.jwt ||
+                   res?.data?.data?.sessionToken ||
+                   res?.data?.data?.jwt;
+                   
+      if (token) {
+        console.log("[MS] Found token in response:", typeof token, token.substring(0, 20) + "...");
+        return { token };
+      }
+      
+      console.warn("[MS] Token endpoint responded but no token found in:", res.data);
+      
     } catch (e) {
-      console.warn("[MS] token attempt failed:", a.url, e?.response?.status, e?.response?.data || e?.message);
+      console.warn("[MS] Token attempt FAILED:", {
+        url: a.url,
+        status: e?.response?.status,
+        statusText: e?.response?.statusText,
+        data: e?.response?.data,
+        message: e?.message
+      });
     }
   }
+  
+  console.error("[MS] All token endpoints failed");
   return null;
 }
 
-/** Magic link via collection endpoint. Return { url } or null. */
+ /** Magic link via collection endpoint. Return { url } or null. */
 export async function createMagicLink(memberId, redirectTo) {
   const a = { method: "post", url: `${BASE}/members/magic-link`, body: { memberId, redirectTo } };
   try {
