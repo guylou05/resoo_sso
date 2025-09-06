@@ -261,6 +261,7 @@ return res.status(500).send(`
 app.get("/logout", (req, res) => {
   res.clearCookie(process.env.SESSION_COOKIE_NAME || "app_session", COOKIE_FLAGS);
   res.redirect("/");
+}
 });
 
 const port = process.env.PORT || 3000;
