@@ -28,7 +28,7 @@ method: a.method,
 url: a.url,
 data: a.body,
 headers,
-timeout: 10000 // 10 second timeout
+timeout: 10000
 });
 
 ```
@@ -39,7 +39,6 @@ timeout: 10000 // 10 second timeout
     responseData: res.data
   });
   
-  // Try different possible token field names
   const token = res?.data?.data?.token || 
                res?.data?.token || 
                res?.data?.sessionToken || 
@@ -93,12 +92,11 @@ throw err;
 export async function createMember({ email, firstName, lastName, planId, json = {}, customFields = {} }) {
 const url = `${BASE}/members`;
 const strongPassword = cryptoRandom(24);
-// Send native names + your custom fields
 const payload = {
 email,
 password: strongPassword,
 firstName: firstName || “”,
-lastName:  lastName  || “”,
+lastName: lastName || “”,
 customFields,
 json,
 };
