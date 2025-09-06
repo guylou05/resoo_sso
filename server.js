@@ -162,19 +162,19 @@ app.get("/auth/callback", async (req, res) => {
       ...COOKIE_FLAGS, maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-// ===== Finish: TOKEN LOGIN ONLY =====
-const finalDest = `${process.env.APP_BASE_URL || ""}${tmp.returnTo || (process.env.POST_LOGIN_PATH || "/membership/home")}`;
+    // ===== Finish: TOKEN LOGIN ONLY =====
+    const finalDest = `${process.env.APP_BASE_URL || ""}${tmp.returnTo || (process.env.POST_LOGIN_PATH || "/membership/home")}`;
 
-// Try to get session token
-let tokenRes = await createSessionToken(member.id);
-if (tokenRes?.token) {
-  console.log("[MS] Using token login bridge");
-  const escapedToken = JSON.stringify(tokenRes.token).replace(/</g, "\u003c");
-  const escapedDest  = JSON.stringify(finalDest).replace(/</g, "\u003c");
-  
-  return res.status(200).send(`<!doctype html>
+    // Try to get session token
+    let tokenRes = await createSessionToken(member.id);
+    if (tokenRes?.token) {
+      console.log("[MS] Using token login bridge");
+      const escapedToken = JSON.stringify(tokenRes.token).replace(/</g, "\u003c");
+      const escapedDest  = JSON.stringify(finalDest).replace(/</g, "\u003c");
+      
+      return res.status(200).send(`<!doctype html>
 <meta charset="utf-8"><title>Signing you in…</title>
-<script data-memberstack-app="pk_24c5c2716e4bca23baba" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
+<script data-memberstack-app="app_clddpivji00150ulqcesy3zo7" src="https://static.memberstack.com/scripts/v1/memberstack.js" async></script>
 <p style="font-family:system-ui,Segoe UI,Arial;margin:2rem;text-align:center;">Finalizing your login…</p>
 <script>
   console.log("Starting Memberstack token login...");
@@ -247,17 +247,26 @@ if (tokenRes?.token) {
   // Start the login process
   attemptLogin();
 </script>`);
-}
+    }
 
-// If no token available, show error
-console.error("[MS] No session token available, cannot authenticate");
-return res.status(500).send(`
+    // If no token available, show error
+    console.error("[MS] No session token available, cannot authenticate");
+    return res.status(500).send(`
 <div style="font-family:system-ui;padding:2rem;text-align:center;">
   <h1>Authentication Error</h1>
   <p>Unable to create session token. Please try again.</p>
-  <p><a href="/auth/login">Try Again</a></p></div>`)
-  }};
-  
+  <p><a href="/auth/login">Try Again</a></p>
+</div>`);
+
+  } catch (e) {
+    console.error("Callback error:", e);
+    return res.status(500).send(`<pre style="white-space:pre-wrap;font-family:system-ui">
+Callback failed:
+${e?.message || String(e)}
+</pre>`);
+  }
+});
+
 app.get("/logout", (req, res) => {
   res.clearCookie(process.env.SESSION_COOKIE_NAME || "app_session", COOKIE_FLAGS);
   res.redirect("/");
