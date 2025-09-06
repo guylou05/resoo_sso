@@ -256,7 +256,7 @@ return res.status(500).send(`
   <h1>Authentication Error</h1>
   <p>Unable to create session token. Please try again.</p>
   <p><a href="/auth/login">Try Again</a></p>
-</div>`})};
+</div>}`)};
   
 app.get("/logout", (req, res) => {
   res.clearCookie(process.env.SESSION_COOKIE_NAME || "app_session", COOKIE_FLAGS);
