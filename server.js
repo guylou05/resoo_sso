@@ -5,23 +5,23 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import {
-generateCodeVerifier,
-generateCodeChallenge,
-randomString,
-getDiscovery,
-buildAuthorizeUrl,
-exchangeCodeForTokens,
-verifyIdToken,
-toNormalizedProfile,
-} from “./auth-helpers.js”;
+  generateCodeVerifier,
+  generateCodeChallenge,
+  randomString,
+  getDiscovery,
+  buildAuthorizeUrl,
+  exchangeCodeForTokens,
+  verifyIdToken,
+  toNormalizedProfile,
+} from "./auth-helpers.js";
 
 import {
-getMemberByEmail,
-createMember,
-updateMember,
-createSessionToken,
-createMagicLink,
-} from “./memberstack.js”;
+  getMemberByEmail,
+  createMember,
+  updateMember,
+  createSessionToken,
+  createMagicLink,
+} from "./memberstack.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
